@@ -1,8 +1,6 @@
-// Next.js 15 instrumentation hook — runs once when the Node server boots
-// (regardless of how it was started: `next start`, `npm start`, custom server,
-// or a managed host that uses `next start` directly). We use it to apply
-// Prisma migrations and (if needed) seed the database, so deploys whose
-// BUILD container can't reach MySQL still bootstrap on first run.
+// Next.js 15 instrumentation hook — runs once when the Node server boots.
+// Used by managed hosts (e.g. Hostinger Node.js Web App) whose BUILD container
+// can't reach MySQL: we defer schema migration + seed to first runtime boot.
 
 export async function register() {
   if (process.env.NEXT_RUNTIME !== "nodejs") return;
@@ -11,9 +9,7 @@ export async function register() {
     return;
   }
 
-  // Webpack will try to bundle bare `child_process` / `fs` / `path` imports and
-  // fail because they're Node built-ins, not npm packages. `eval('require')`
-  // resolves at runtime, bypassing webpack's static analysis.
+  // Hide Node built-in requires from webpack's static analysis.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const req: NodeRequire = (eval("require") as any);
   const { spawnSync } = req("child_process") as typeof import("child_process");
@@ -22,33 +18,37 @@ export async function register() {
 
   const cwd = process.cwd();
 
-  const run = (label: string, args: string[]) => {
-    console.log(`[instrumentation] ${label}…`);
-    const result = spawnSync(process.execPath, args, {
+  // 1. Run prisma migrate deploy via the prisma CLI bundled in node_modules.
+  const prismaBin = path.join(cwd, "node_modules", "prisma", "build", "index.js");
+  if (fs.existsSync(prismaBin)) {
+    console.log("[instrumentation] prisma migrate deploy…");
+    const r = spawnSync(process.execPath, [prismaBin, "migrate", "deploy"], {
       stdio: "inherit",
       cwd,
       env: process.env,
     });
-    if (result.error) {
-      console.error(`[instrumentation] ${label} spawn error:`, result.error.message);
-    } else if (result.status !== 0) {
-      console.error(`[instrumentation] ${label} exit ${result.status}`);
+    if (r.status !== 0) {
+      console.error(`[instrumentation] prisma migrate deploy failed (exit ${r.status})`);
     } else {
-      console.log(`[instrumentation] ${label} OK`);
+      console.log("[instrumentation] prisma migrate deploy OK");
     }
-  };
-
-  const prismaBin = path.join(cwd, "node_modules", "prisma", "build", "index.js");
-  if (fs.existsSync(prismaBin)) {
-    run("prisma migrate deploy", [prismaBin, "migrate", "deploy"]);
   } else {
     console.warn("[instrumentation] prisma CLI not found at", prismaBin);
   }
 
-  const tsxBin = path.join(cwd, "node_modules", "tsx", "dist", "cli.mjs");
-  if (fs.existsSync(tsxBin)) {
-    run("seed", [tsxBin, "prisma/seed.ts"]);
-  } else {
-    console.warn("[instrumentation] tsx CLI not found — skipping seed");
+  // 2. Seed the DB inline (no external tsx, no missing-file risk).
+  try {
+    console.log("[instrumentation] seed…");
+    const { PrismaClient } = await import("@prisma/client");
+    const { runSeed } = await import("@/lib/seed");
+    const prisma = new PrismaClient();
+    try {
+      await runSeed(prisma);
+      console.log("[instrumentation] seed OK");
+    } finally {
+      await prisma.$disconnect();
+    }
+  } catch (e) {
+    console.error("[instrumentation] seed failed:", e);
   }
 }

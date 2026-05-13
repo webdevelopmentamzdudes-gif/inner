@@ -12,9 +12,9 @@ export async function register() {
     return;
   }
 
-  const { spawnSync } = await import("node:child_process");
-  const path = await import("node:path");
-  const fs = await import("node:fs");
+  const { spawnSync } = await import("child_process");
+  const path = await import("path");
+  const fs = await import("fs");
 
   const cwd = process.cwd();
 

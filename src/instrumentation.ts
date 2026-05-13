@@ -1,9 +1,8 @@
 // Next.js 15 instrumentation hook — runs once when the Node server boots
-// (regardless of how it was started: `next start`, `npm start`, a custom
-// server file, or a managed host like Hostinger that uses `next start`
-// directly). We use it to apply Prisma migrations and (if needed) seed
-// the database, so deploys to environments whose BUILD container can't
-// reach MySQL still bootstrap correctly on first run.
+// (regardless of how it was started: `next start`, `npm start`, custom server,
+// or a managed host that uses `next start` directly). We use it to apply
+// Prisma migrations and (if needed) seed the database, so deploys whose
+// BUILD container can't reach MySQL still bootstrap on first run.
 
 export async function register() {
   if (process.env.NEXT_RUNTIME !== "nodejs") return;
@@ -12,9 +11,14 @@ export async function register() {
     return;
   }
 
-  const { spawnSync } = await import("child_process");
-  const path = await import("path");
-  const fs = await import("fs");
+  // Webpack will try to bundle bare `child_process` / `fs` / `path` imports and
+  // fail because they're Node built-ins, not npm packages. `eval('require')`
+  // resolves at runtime, bypassing webpack's static analysis.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const req: NodeRequire = (eval("require") as any);
+  const { spawnSync } = req("child_process") as typeof import("child_process");
+  const path = req("path") as typeof import("path");
+  const fs = req("fs") as typeof import("fs");
 
   const cwd = process.cwd();
 

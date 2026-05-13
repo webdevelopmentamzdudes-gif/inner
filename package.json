@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "npm install --include=dev && prisma migrate deploy && next build && tsx prisma/seed.ts",
+    "build": "npm install --include=dev && next build",
     "start": "next start",
     "lint": "next lint",
     "db:migrate": "prisma migrate dev",

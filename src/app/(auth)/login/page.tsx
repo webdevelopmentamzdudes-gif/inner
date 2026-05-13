@@ -49,9 +49,7 @@ export default async function LoginPage({
         <button type="submit" className="btn-primary w-full">Sign in</button>
       </form>
 
-      <p className="text-xs text-muted">
-        Default seeded admin: <code>admin@example.com</code> / <code>ChangeMe123!</code>
-      </p>
+   
     </div>
   );
 }

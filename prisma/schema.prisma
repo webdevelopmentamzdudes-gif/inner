@@ -1,0 +1,330 @@
+// Lead Management Platform — Prisma schema
+// Mirrors PRD §16. Uses MySQL (InnoDB). JSON-shaped fields use Prisma `Json`;
+// src/lib/json.ts parseJson/toJson normalize reads/writes for the app layer.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+// =====================================================================
+// Users & Auth
+// =====================================================================
+
+model User {
+  id             String     @id @default(cuid())
+  email          String     @unique
+  name           String
+  role           String     @default("REP") // ADMIN | MANAGER | REP | VIEWER
+  status         String     @default("ACTIVE") // ACTIVE | INVITED | DISABLED
+  hashedPassword String?
+  lastLoginAt    DateTime?
+  notifPrefs     Json       @default("{}")
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
+
+  ownedLeads      Lead[]           @relation("LeadAssignee")
+  createdLeads    Lead[]           @relation("LeadCreator")
+  createdIcps     Icp[]            @relation("IcpCreator")
+  defaultIcps     Icp[]            @relation("IcpDefaultAssignee")
+  notes           LeadNote[]
+  createdTasks    LeadTask[]       @relation("TaskCreator")
+  assignedTasks   LeadTask[]       @relation("TaskAssignee")
+  activities      LeadActivity[]
+  notifications   Notification[]
+  savedViews      SavedView[]
+  importJobs      ImportJob[]
+  exportJobs      ExportJob[]
+  resources       Resource[]
+  contactAttempts ContactAttempt[]
+
+  @@index([role])
+  @@index([status])
+}
+
+// =====================================================================
+// ICPs — Ideal Customer Profiles
+// =====================================================================
+
+model Icp {
+  id                String   @id @default(cuid())
+  name              String   @unique
+  description       String?  @db.Text
+  color             String   @default("#1E7FC4")
+  status            String   @default("ACTIVE") // ACTIVE | ARCHIVED
+  defaultAssigneeId String?
+  defaultAssignee   User?    @relation("IcpDefaultAssignee", fields: [defaultAssigneeId], references: [id])
+  createdById       String
+  createdBy         User     @relation("IcpCreator", fields: [createdById], references: [id])
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  criteria  IcpCriterion[]
+  stages    IcpStage[]
+  leads     Lead[]
+  resources Resource[]
+}
+
+model IcpCriterion {
+  id         String @id @default(cuid())
+  icpId      String
+  icp        Icp    @relation(fields: [icpId], references: [id], onDelete: Cascade)
+  label      String
+  // STRING | NUMBER | BOOLEAN | ENUM | RANGE | URL
+  dataType   String
+  required   Boolean @default(false)
+  // EQUALS | CONTAINS | GREATER_THAN | LESS_THAN | BETWEEN | IN_LIST
+  matchRule  String
+  // JSON. Shape depends on matchRule (see former schema comments).
+  matchValue Json
+  fieldPath  String
+  weight     Int
+  sortOrder  Int     @default(0)
+
+  @@index([icpId])
+}
+
+model IcpStage {
+  id                 String  @id @default(cuid())
+  icpId              String
+  icp                Icp     @relation(fields: [icpId], references: [id], onDelete: Cascade)
+  name               String
+  sortOrder          Int
+  isTerminal         Boolean @default(false)
+  isWon              Boolean @default(false)
+  isLost             Boolean @default(false)
+  color              String  @default("#6B7280")
+  stallThresholdDays Int?
+
+  leads Lead[]
+
+  @@unique([icpId, name])
+  @@index([icpId, sortOrder])
+}
+
+// =====================================================================
+// Leads
+// =====================================================================
+
+model Lead {
+  id              String   @id @default(cuid())
+  icpId           String
+  icp             Icp      @relation(fields: [icpId], references: [id])
+  stageId         String
+  stage           IcpStage @relation(fields: [stageId], references: [id])
+
+  companyName     String
+  companyWebsite  String?
+  industry        String?
+  geography       String?
+  headcount       Int?
+  annualRevenue   BigInt?
+
+  contactFirstName String?
+  contactLastName  String?
+  contactTitle     String?
+  contactEmail     String?
+  contactPhone     String?
+  contactLinkedin  String?
+
+  // LINKEDIN | APOLLO | REFERRAL | EVENT | MANUAL | CSV | OTHER
+  leadSource   String
+  sourceDetail String?
+
+  score          Int  @default(0)
+  scoreBreakdown Json @default("[]")
+  customFields   Json @default("{}")
+
+  assignedToId String?
+  assignedTo   User?   @relation("LeadAssignee", fields: [assignedToId], references: [id])
+  createdById  String
+  createdBy    User    @relation("LeadCreator", fields: [createdById], references: [id])
+
+  nextActionDue  DateTime?
+  lastActivityAt DateTime  @default(now())
+
+  status      String  @default("ACTIVE") // ACTIVE | ARCHIVED | DELETED
+  // NOT_INTERESTED | NO_BUDGET | WRONG_FIT | UNRESPONSIVE | COMPETITOR | OTHER
+  lostReason  String?
+  closingNote String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tags            LeadTag[]
+  notes           LeadNote[]
+  tasks           LeadTask[]
+  activities      LeadActivity[]
+  contactAttempts ContactAttempt[]
+
+  @@index([icpId])
+  @@index([assignedToId])
+  @@index([stageId])
+  @@index([score])
+  @@index([lastActivityAt])
+  @@index([icpId, stageId, score])
+  @@unique([icpId, contactEmail], name: "uniq_icp_email")
+}
+
+model LeadTag {
+  leadId String
+  lead   Lead   @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  tag    String
+
+  @@id([leadId, tag])
+  @@index([tag])
+}
+
+model LeadNote {
+  id          String   @id @default(cuid())
+  leadId      String
+  lead        Lead     @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  body        String   @db.Text
+  createdById String
+  createdBy   User     @relation(fields: [createdById], references: [id])
+  createdAt   DateTime @default(now())
+
+  @@index([leadId, createdAt])
+}
+
+model LeadTask {
+  id           String    @id @default(cuid())
+  leadId       String
+  lead         Lead      @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  title        String
+  dueDate      DateTime?
+  completedAt  DateTime?
+  assignedToId String?
+  assignedTo   User?     @relation("TaskAssignee", fields: [assignedToId], references: [id])
+  createdById  String
+  createdBy    User      @relation("TaskCreator", fields: [createdById], references: [id])
+  createdAt    DateTime  @default(now())
+
+  @@index([leadId])
+  @@index([assignedToId, completedAt])
+}
+
+model LeadActivity {
+  id            String   @id @default(cuid())
+  leadId        String
+  lead          Lead     @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  // CREATED | STAGE_CHANGED | ASSIGNEE_CHANGED | SCORE_CHANGED | FIELD_EDITED |
+  // TAG_ADDED | TAG_REMOVED | NOTE_ADDED | TASK_CREATED | TASK_COMPLETED |
+  // ARCHIVED | RESTORED | DELETED | VIEWED | IMPORTED
+  type          String
+  payload       Json     @default("{}")
+  performedById String?
+  performedBy   User?    @relation(fields: [performedById], references: [id])
+  createdAt     DateTime @default(now())
+
+  @@index([leadId, createdAt])
+}
+
+// =====================================================================
+// Saved Views, Notifications, Jobs
+// =====================================================================
+
+model SavedView {
+  id           String   @id @default(cuid())
+  userId       String
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name         String
+  filterConfig Json
+  isShared     Boolean  @default(false)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([userId])
+  @@index([isShared])
+}
+
+model Notification {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // LEAD_ASSIGNED | LEAD_REASSIGNED_AWAY | NOTE_ON_OWNED_LEAD | OWNED_LEAD_WON_LOST
+  // | LEAD_STALLED | TASK_DUE_TODAY | MENTION | IMPORT_FINISHED | EXPORT_READY | ICP_ADDED
+  type      String
+  payload   Json     @default("{}")
+  isRead    Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([userId, isRead, createdAt])
+}
+
+model ImportJob {
+  id           String    @id @default(cuid())
+  userId       String
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  status       String    @default("PENDING") // PENDING | RUNNING | SUCCEEDED | FAILED
+  totalRows    Int       @default(0)
+  successCount Int       @default(0)
+  errorCount   Int       @default(0)
+  errorLog     Json      @default("[]")
+  createdAt    DateTime  @default(now())
+  completedAt  DateTime?
+}
+
+// Logs every outreach touch on a lead — email, call, LinkedIn, social, etc.
+model ContactAttempt {
+  id            String   @id @default(cuid())
+  leadId        String
+  lead          Lead     @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  // EMAIL | CALL | LINKEDIN | SOCIAL | IN_PERSON | SMS | OTHER
+  channel       String
+  direction     String   @default("OUTBOUND")
+  status        String   @default("ATTEMPTED")
+  occurredAt    DateTime @default(now())
+  summary       String?
+  performedById String
+  performedBy   User     @relation(fields: [performedById], references: [id])
+  createdAt     DateTime @default(now())
+
+  @@index([leadId, occurredAt])
+  @@index([leadId, channel])
+}
+
+model Resource {
+  id          String   @id @default(cuid())
+  icpId       String
+  icp         Icp      @relation(fields: [icpId], references: [id], onDelete: Cascade)
+  type        String
+  title       String
+  body        String?  @db.Text
+  meta        Json     @default("{}")
+  fileName    String?
+  filePath    String?
+  fileMime    String?
+  fileSize    Int?
+  version     String   @default("1.0")
+  status      String   @default("ACTIVE") // ACTIVE | ARCHIVED
+  createdById String
+  createdBy   User     @relation(fields: [createdById], references: [id])
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([icpId, type])
+  @@index([icpId])
+}
+
+model Settings {
+  id          String   @id @default("default")
+  permissions Json     @default("{}")
+  updatedAt   DateTime @updatedAt
+}
+
+model ExportJob {
+  id          String    @id @default(cuid())
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  status      String    @default("PENDING") // PENDING | RUNNING | SUCCEEDED | FAILED
+  rowCount    Int       @default(0)
+  fileUrl     String?
+  expiresAt   DateTime?
+  createdAt   DateTime  @default(now())
+  completedAt DateTime?
+}

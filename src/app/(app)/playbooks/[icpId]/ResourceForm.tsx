@@ -179,29 +179,20 @@ export default function ResourceForm({
               {initial.status === "ARCHIVED" ? (
                 <RowAction
                   label="Restore"
-                  action={async () => {
-                    "use server";
-                    await restoreResource(initial.id!);
-                  }}
+                  action={restoreResource.bind(null, initial.id!)}
                 />
               ) : (
                 <RowAction
                   label="Archive"
                   className="btn-ghost text-warning"
-                  action={async () => {
-                    "use server";
-                    await archiveResource(initial.id!);
-                  }}
+                  action={archiveResource.bind(null, initial.id!)}
                 />
               )}
               <RowAction
                 label="Delete"
                 className="btn-ghost text-danger"
                 confirmText="Delete this resource permanently? Files will be removed."
-                action={async () => {
-                  "use server";
-                  await deleteResource(initial.id!);
-                }}
+                action={deleteResource.bind(null, initial.id!)}
               />
             </>
           )}

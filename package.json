@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "next dev",
     "build": "npm install --include=dev && next build",
-    "start": "next start",
+    "start": "node scripts/start.js",
     "lint": "next lint",
     "db:migrate": "prisma migrate dev",
     "db:reset": "prisma migrate reset --force",

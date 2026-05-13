@@ -97,6 +97,15 @@ const ICPS: {
 ];
 
 async function main() {
+  // Safe-to-rerun guard: if the DB already has users, skip seeding entirely.
+  // This lets the build pipeline call this seed on every deploy without ever
+  // resetting an admin password that the user has changed in the app.
+  const existingUsers = await prisma.user.count();
+  if (existingUsers > 0) {
+    console.log(`Seed: ${existingUsers} user(s) already exist — skipping seed.`);
+    return;
+  }
+
   console.log("Seeding admin user…");
   const hashed = await bcrypt.hash(ADMIN_PASSWORD, 10);
   const admin = await prisma.user.upsert({

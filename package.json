@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "next dev",
     "build": "npm install --include=dev --legacy-peer-deps && next build",
-    "start": "next start -H 0.0.0.0 -p $PORT",
+    "start": "node server.js",
     "lint": "next lint",
     "db:migrate": "prisma migrate dev",
     "db:reset": "prisma migrate reset --force",
